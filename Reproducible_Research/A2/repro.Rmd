@@ -1,0 +1,173 @@
+---
+title: "Report of the Severe Weather impact in US's health and economy"
+author: "zhenyue zhu"
+date: "May 8, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+Storms and other severe weather events can cause both public health and economic 
+problems for the world. They can result in fatalities, injuries, and property 
+damage from 1950 to present. Thus it is crucial for us to understand what kind of 
+events have the strongest effect for our health and economy.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric 
+Administration's (NOAA) storm database. This database tracks characteristics of 
+major storms and weather events in the United States, including when and where they 
+occur, as well as estimates of any fatalities, injuries, and property damage.
+
+The purpose of this project is address the following questions:
+
+* Across the United States, which types of events are most harmful with respect to
+population health?
+* Across the United States, which types of events have the greatest economic 
+consequences?
+
+## Data Processing
+First download the data from the website and then directly read the bz2 format file 
+into the data set.
+
+```{r cars, cache=TRUE}
+library(ggplot2)
+url="http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+download.file(url, destfile = "~/data/R/stormData.csv.bz2")
+data<-read.csv("~/data/R/stormData.csv.bz2")
+```
+
+Get some basic information of this data set.
+```{r, cache=TRUE}
+dim(data)
+#head(data,n=10)
+str(data)
+summary(data$EVTYPE)
+class(data$EVTYPE)
+```
+
+As we can see that this event types has many things which have very similar names.
+For example, "THUNDERSTORM WIND" and "THUNDERSTORM WINDS" should be similar things.
+Then I will define the function which will make similar event types to be similar.
+
+```{r,cache=TRUE}
+reduce_cateory<-function(x){
+  x <- tolower(x)
+  if (grepl("hail", x)){
+    return("hail")
+  }
+    if (grepl("flood|FLD|fld", x)){
+    return("flood")
+  }
+  if (grepl("thunderstorm", x)){
+    return("thunderstorm")
+  }
+  if (grepl("wind", x)){
+    return("wind")
+  }
+  if (grepl("dry|drought", x)){
+    return("dry weather")
+  }
+  if (grepl("heat|warm", x)){
+    return("hot weather")
+  } 
+  if (grepl("fire", x)){
+    return("Fire")
+  }
+  if (grepl("rain", x)){
+    return("rain")
+  }
+  if (grepl("hurricane|tropical|typhoon", x)){
+    return("hurricane")
+  }
+  if (grepl("snow|ice|freez|blizzard|winter", x)){
+    return("winter disaster")
+  }
+  else{
+    return(x)
+  }
+}
+
+events<-as.factor(sapply(data$EVTYPE,FUN=reduce_cateory))
+summary(events)
+```
+Now We see that these event types are greatly reduced. 
+The most common types are "hail","wind","thunderstorm","flood","tornado","winter 
+disaster" and "lightning". I will create the damage to the health and the damage to 
+the crops.
+
+## consider the events which has the most injuries or fatalities
+
+Then I will sum the fatalties and injuries for these type events and create the total data frame.
+```{r,cache=TRUE}
+fatal <- aggregate(data$FATALITIES, list(events), sum)
+injury <- aggregate(data$INJURIES, list(events), sum)
+names(fatal) <- c("event", "count"); 
+names(injury) <- c("event", "count")
+health <- data.frame(fatal$event, fatal$count, injury$count)
+names(health) <- c("event", "fatalities", "injuries")
+health <- health[order(-health$injuries, -health$fatalities), ][1:10,]
+health
+```
+It's very obvious from this table that the max fatalities type from 1950 to present 
+is tornado related disasters. Similarly, 
+the most injuries types are also related to tornados.
+```{r}
+library(ggplot2)
+qplot(data = health, x = event, y = fatalities, geom = c("point", "smooth"))+
+labs(title = '10 Most Harmful Types of Weather\n Measured by Fatalities from 1950 - 
+     present', y = 'Number of People', x = 'Weather Event')
+```
+
+## Consider the event which has the most influence on the economic consequences.
+I need the columns with "PRODMG" and "CROPDMG", since these columns have different units, I have to convert the units from k to 10^3, M to 10^6, etc...
+
+```{r,cache=TRUE}
+convert <- function(coeff, exp){
+  if (is.na(exp)){
+    as.numeric(coeff)
+  }
+  else if (toupper(exp)== "K"){
+    as.numeric(coeff)*10^3
+  }
+  else if (toupper(exp) == "M"){
+    as.numeric(coeff)*10^6
+  }
+  else if (toupper(exp)== "B"){
+    as.numeric(coeff)*10^9
+  }
+  else{
+    as.numeric(coeff)
+  }
+}
+
+prop <- apply(data[, c('PROPDMG', 'PROPDMGEXP')], 1, function(x) convert(x['PROPDMG'], x['PROPDMGEXP']))
+crop <- apply(data[, c('CROPDMG', 'CROPDMGEXP')], 1, function(x) convert(x['CROPDMG'], x['CROPDMGEXP']))
+```
+
+```{r,cache=TRUE}
+prop_dmg <- aggregate(prop, list(events), sum)
+crop_dmg <- aggregate(crop, list(events), sum)
+names(prop_dmg) <- c("event", "cost"); 
+names(crop_dmg) <- c("event", "cost")
+economy <- data.frame(prop_dmg$event, prop_dmg$cost, crop_dmg$cost)
+names(economy) <- c("event", "prop", "crop")
+economy <- economy[order(-economy$prop, -economy$crop), ][1:10,]
+economy
+```
+
+```{r}
+library(ggplot2)
+qplot(data = economy, x = event, y = prop/10^9, geom = c("point", "smooth"))+
+labs(title = '10 Most Harmful Types of Weather\n Measured by property damage from 
+     1950 - present', y = 'in billions of US dollars', x = 'Weather Event')
+```
+
+It's easy to see that flood has the highest both property and crop damage.
+
+## Results and Conclusion.
+
+* The most dangerous event type for the people's health is **Tornado**.
+* The most property and crop damage event type is **flood**. 
