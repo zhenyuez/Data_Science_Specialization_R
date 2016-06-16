@@ -1,0 +1,159 @@
+---
+title: "The report of progress in data science capstone project"
+author: "zhenyue zhu"
+date: "2016年6月13日"
+output: html_document
+---
+# Introduction
+
+This milestone resport is to apply the data science in the area of natural language processing.
+I will first download the data, manipulate with the data, clean it and sample a portion of the data to
+look at the word frequencies. Then In the future, I will use a predict model to predict the next word that users might want depends on the n-gram frequencies.
+
+## Down load the data and unzip it
+Download and unzip the file first.
+```{r, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+destination_file <- "Coursera-SwiftKey.zip"
+source_file <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+download.file(source_file, destination_file)
+unzip(destination_file)
+
+```
+
+Check the folders of the downloaded file, read in all the blogs, twitter and news files.
+```{r,cache=TRUE}
+list.files("final")
+list.files("final/en_US")
+
+blogs <- readLines("final/en_US/en_US.blogs.txt", encoding="UTF-8")
+twitter <- readLines("final/en_US/en_US.twitter.txt", encoding="UTF-8")
+news <- readLines("final/en_US/en_US.news.txt", encoding="UTF-8")
+```
+
+Now before we analyse the files,let's look at their size (in MegaBytes), the number of lines and the number of words in a documents. To get the number of words in the file, I use the package from stringi library function stri_count_words. 
+
+```{r,cache=TRUE}
+library(stringi)
+blog_size=round(file.info("final/en_US/en_US.blogs.txt")$size/1024^2, digits=2)
+news_size=round(file.info("final/en_US/en_US.news.txt")$size/1024^2, digits=2)
+twitter_size=round(file.info("final/en_US/en_US.twitter.txt")$size/1024^2, digits=2)
+
+blogs_length=length(blogs)
+news_length=length(news)
+twitter_length=length(twitter)
+
+blogs_words=sum(stri_count_words(blogs))
+news_words=sum(stri_count_words(news))
+twitter_words=sum(stri_count_words(twitter))
+
+```
+
+Next I will sample a portion around 0.01 of the original files, including both the
+blogs, news and twitter files.
+```{r, cache=TRUE}
+sample_blogs <- blogs[sample(1:blogs_length,20000)]
+sample_news <- news[sample(1:news_length,20000)]
+sample_twitter <- twitter[sample(1:twitter_length,20000)]
+sample_list <- c(sample_twitter,sample_news,sample_blogs)
+
+writeLines(sample_list, "sample.txt")
+sample <-readLines("sample.txt", encoding="UTF-8")
+sample_size=round(file.info("sample.txt")$size/1024^2,2)
+sample_length=length(sample)
+sample_words=sum(stri_count_words(sample))
+```
+
+This following is the table of the data files looks like.
+As you can see now that the sample size is much smaller than the original files.
+
+## summary of the files table.
+```{r }
+summary <- data.frame(
+        file_name = c("Blogs","News","Twitter","Samples"),
+        size_in_MB = c(blog_size, news_size, twitter_size, sample_size),
+        number_line = c(blogs_length, news_length, twitter_length,sample_length),
+        number_word = c(blogs_words, news_words, twitter_words,sample_words)                  
+)
+summary
+```
+
+# Build a clean text corpus 
+
+Using the text_mining package in R called library(tm) and then use the tokenizer to generate a 2-gram or 3-gram term document matrix. Since the original file includes the punctuation, numbers, or extrawhite space and mixing of upper lower cases, I will purify the text file as follows:
+
+```{r,copo,cache=TRUE}
+library(tm)
+library(RWeka)
+#df = as.data.frame(sample)
+corpus = Corpus(VectorSource(sample)) 
+clean_corpus <- tm_map(corpus, content_transformer(tolower) )
+clean_corpus <- tm_map(clean_corpus, content_transformer(removePunctuation))
+clean_corpus <- tm_map(clean_corpus, content_transformer(removeNumbers))
+clean_corpus <- tm_map(clean_corpus, stripWhitespace)
+```
+
+The following function is used to generate a term_document matrix using the n-gram tokens.
+```{r, cache=TRUE}
+tdm_generate<-function(clean_corpus,n){
+#  options(mc.cores=1)
+  Tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = n, max = n)) 
+  tdm <- TermDocumentMatrix(clean_corpus, control = list(tokenize = Tokenizer))
+}
+```
+
+Now I generate the 2-gram and 3-gram tokens for the term document matrix.
+This step took lots of time to generate a 2-gram and 3-gram term document matrix.
+```{r,cache=TRUE}
+uni_tdm<-tdm_generate(clean_corpus,1)
+bi_tdm<-tdm_generate(clean_corpus,2)
+tri_tdm<-tdm_generate(clean_corpus,3)
+```
+
+Then sum through all the document records and find out which 2-gram or 3 gram has the highest frequencies. Change the tdm into a data frame format, give the column names, then sort the frequency of the n-gram in a descending order.
+
+```{r, cache=TRUE}
+library(slam)
+library(plyr)
+freq_table <- function(tdm){
+    temp <- row_sums(tdm)
+    df <- as.data.frame(temp)
+    df$Words <- row.names(df)
+    names(df) <- c('Frequency','Words')
+    rownames(df) <- NULL
+    df <- df %>% transform(Words = reorder(Words, Frequency)) %>%
+            arrange(desc(Frequency))
+    rm(temp)
+    return(df)
+}
+uni_tdm_freq <- freq_table(uni_tdm)
+bi_tdm_freq <- freq_table(bi_tdm)
+tri_tdm_freq <- freq_table(tri_tdm)
+```
+
+Then use ggplot2 to plot the top 50 2-gram and 3-gram for the sample corpus.
+```{r}
+library(ggplot2)
+ggplot(uni_tdm_freq[1:50,], aes(Words, Frequency)) + geom_bar(stat = 'identity') + coord_flip() +
+    ggtitle('Top 50 unigram') +  xlab(NULL)
+ggplot(bi_tdm_freq[1:50,], aes(Words, Frequency)) + geom_bar(stat = 'identity') + coord_flip() +
+    ggtitle('Top 50 bigram') +  xlab(NULL)
+ggplot(tri_tdm_freq[1:50,], aes(Words, Frequency)) + geom_bar(stat = 'identity') + coord_flip() +
+    ggtitle('Top 50 trigram') +  xlab(NULL)
+```
+
+# Some basic findings of the documents.
+
+* Loading the whole datasets will cost lots of time. Thus we use only a small fraction 1% of the whole data set. Then build the n-gram model with term document matrix for this.
+
+* It looks like the most frequent words in the unigram is like 'and' and 'the' these simple words. It might be interesting to look at more interesting methods to get the true most frequent unigram for the text. 
+
+* There are only a small fraction of 2-gram or 3-gram has very high frequencies. Thus the frequency table is highly right skewed. For a 2-gram, it is a combination of something with 'the'. While for 3-gram, the most frequent is "a lot of" and one of the". It's obvious that the 3-gram frequencies is much lower than the 1-gram and 2-gram frequencies.
+
+# Propose the future predicting model.
+
+The next step of the capstone project will be to create a prediction application with shinny app.
+To create a smooth and fast application, it is absolutely necessary to build a fast prediction 
+algorithm. I might need to reduce the sample size again for faster prediction. Next increasing the 
+value of n for n-gram tokenization will improve the prediction accuracy. Also use the naive Bayes 
+theorem for prediction of the next word that users might want.
